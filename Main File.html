@@ -1,0 +1,122 @@
+<!-- BioScout Islamabad: Minimal MVP Web App -->
+<!-- Part A: Biodiversity Observation Submission -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BioScout Islamabad</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background: #f0f4f8;
+    }
+    h1, h2 {
+      color: #2c3e50;
+    }
+    form, .observation-list, .qna-section {
+      margin-top: 30px;
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+    input, textarea, select, button {
+      display: block;
+      margin-bottom: 15px;
+      padding: 10px;
+      width: 100%;
+    }
+    .observation-card {
+      background: #ecf0f1;
+      border-radius: 10px;
+      padding: 10px;
+      margin-bottom: 15px;
+    }
+    .badge {
+      background: gold;
+      padding: 5px 10px;
+      border-radius: 5px;
+      display: inline-block;
+      margin-top: 5px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🐾 BioScout Islamabad</h1>
+
+  <!-- Part A: Observation Submission -->
+  <h2>Report Wildlife Observation</h2>
+  <form id="observationForm">
+    <input type="text" id="speciesName" placeholder="Species Name (optional)">
+    <input type="date" id="dateObserved">
+    <input type="text" id="location" placeholder="Location (e.g., Margalla Hills)">
+    <input type="file" id="photo">
+    <textarea id="notes" placeholder="Notes about the observation"></textarea>
+    <button type="submit">Submit Observation</button>
+  </form>
+
+  <div class="observation-list">
+    <h2>Submitted Observations</h2>
+    <div id="observations"></div>
+  </div>
+
+  <!-- Gamification Badge -->
+  <div>
+    <h2>Top Observer Badge</h2>
+    <div class="badge">🌟 Top Observer: You!</div>
+    <p>Total Observations: <span id="observationCount">0</span></p>
+  </div>
+
+  <!-- Part B: Biodiversity Q&A -->
+  <div class="qna-section">
+    <h2>🧠 Ask a Question about Islamabad's Nature</h2>
+    <input type="text" id="userQuestion" placeholder="e.g., What birds live in Margalla Hills?">
+    <button onclick="answerQuestion()">Ask</button>
+    <p><strong>Answer:</strong> <span id="qaAnswer"></span></p>
+  </div>
+
+  <script>
+    const form = document.getElementById('observationForm');
+    const observations = document.getElementById('observations');
+    const countDisplay = document.getElementById('observationCount');
+    let count = 0;
+
+    form.addEventListener('submit', function(e) {
+      e.preventDefault();
+      const name = document.getElementById('speciesName').value;
+      const date = document.getElementById('dateObserved').value;
+      const location = document.getElementById('location').value;
+      const notes = document.getElementById('notes').value;
+      const fakeAI = name || 'AI Suggests: Indian Myna';
+
+      const card = document.createElement('div');
+      card.className = 'observation-card';
+      card.innerHTML = `<strong>Species:</strong> ${fakeAI}<br>
+                        <strong>Date:</strong> ${date}<br>
+                        <strong>Location:</strong> ${location}<br>
+                        <strong>Notes:</strong> ${notes}`;
+      observations.appendChild(card);
+
+      count++;
+      countDisplay.innerText = count;
+      form.reset();
+    });
+
+    function answerQuestion() {
+      const q = document.getElementById('userQuestion').value.toLowerCase();
+      const a = document.getElementById('qaAnswer');
+      if (q.includes('leopard')) {
+        a.innerText = "Yes, leopards have been occasionally sighted in the Margalla Hills, especially near Trail 6.";
+      } else if (q.includes('bird') || q.includes('birds')) {
+        a.innerText = "Common birds in Margalla Hills include the Himalayan Bulbul, Indian Myna, and White-throated Kingfisher.";
+      } else if (q.includes('plant')) {
+        a.innerText = "Margalla Hills have various plant species like Acacia modesta (Phulai) and Olea ferruginea (Kahu).";
+      } else {
+        a.innerText = "Sorry, I couldn't find a match. Try asking about birds, leopards, or plants.";
+      }
+    }
+  </script>
+</body>
+</html>
