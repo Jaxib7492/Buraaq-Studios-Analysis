@@ -3,6 +3,7 @@ import pandas as pd
 import os
 from datetime import datetime
 
+
 DATA_FILE = "daily_videos.csv"
 ADMIN_PASSWORD = "Scorpio143"
 
