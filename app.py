@@ -8,6 +8,9 @@ DATA_FILE = "daily_videos.csv"
 def load_video_data():
     if os.path.exists(DATA_FILE):
         df = pd.read_csv(DATA_FILE)
+        # Make sure columns exist or add defaults
+        if 'date' not in df.columns:
+            df['date'] = "Unknown"
         if 'datetime' not in df.columns:
             df['datetime'] = df['date'] + " 00:00:00"
         if 'client' not in df.columns:
@@ -49,7 +52,10 @@ def mark_as_paid(indexes):
     df.to_csv(DATA_FILE, index=False)
 
 def get_month_name(date_str):
-    return datetime.strptime(date_str, "%Y-%m-%d").strftime("%B %Y")
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d").strftime("%B %Y")
+    except Exception:
+        return "Unknown"
 
 def main():
     st.set_page_config(layout="wide")
@@ -59,15 +65,12 @@ def main():
     if 'refresh' not in st.session_state:
         st.session_state.refresh = False
 
-    # If refresh flag is set, clear it and continue (simulate rerun)
     if st.session_state.refresh:
         st.session_state.refresh = False
 
-    # Load data and unpaid PKR videos upfront
     df = load_video_data()
     unpaid_pkr = df[(df['currency'] == "PKR") & (~df['paid'])]
 
-    # Sidebar unpaid list
     with st.sidebar:
         st.header("🧾 Unpaid PKR Videos")
         if unpaid_pkr.empty:
@@ -86,7 +89,6 @@ def main():
                     st.session_state.refresh = True
                     st.stop()
 
-    # Main app menu
     menu = ["Submit Video", "View Monthly Breakdown"]
     choice = st.selectbox("Menu", menu)
 
@@ -107,7 +109,6 @@ def main():
             length_min = st.number_input("Enter Video Length (minutes)", min_value=0.0, step=0.1)
             pkr_per_minute = st.number_input("Enter PKR per minute rate (optional)", min_value=0.0, step=0.1)
 
-            # Calculate amount automatically if pkr_per_minute > 0
             if pkr_per_minute > 0:
                 amount = length_min * pkr_per_minute
                 st.markdown(f"**Calculated Video Amount:** {amount:.2f} PKR")
@@ -118,7 +119,6 @@ def main():
             amount = st.number_input("Enter Video Amount", min_value=0.0, step=0.01)
 
         if st.button("Add Entry"):
-            # Basic validation for PKR
             if currency == "PKR":
                 if length_min <= 0:
                     st.error("Please enter video length greater than zero.")
@@ -141,11 +141,31 @@ def main():
         if df.empty:
             st.info("No video data submitted yet.")
         else:
+            # Add month column
             df['month'] = df['date'].apply(get_month_name)
-            months = df['month'].unique()
+
+            # Client dropdown for filtering
+            clients = sorted(df['client'].dropna().unique())
+            selected_client = st.selectbox("Filter by Client", ["All"] + clients)
+
+            # Filter dataframe by client
+            if selected_client != "All":
+                filtered_df = df[df['client'] == selected_client]
+            else:
+                filtered_df = df
+
+            # Filter out invalid months
+            def is_valid_month(m):
+                try:
+                    datetime.strptime(m, "%B %Y")
+                    return True
+                except Exception:
+                    return False
+
+            months = [m for m in filtered_df['month'].unique() if is_valid_month(m)]
 
             for month in sorted(months, key=lambda m: datetime.strptime(m, "%B %Y"), reverse=True):
-                monthly_data = df[df['month'] == month]
+                monthly_data = filtered_df[filtered_df['month'] == month]
                 currencies = monthly_data['currency'].unique()
 
                 for curr in currencies:
