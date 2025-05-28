@@ -6,38 +6,61 @@ from datetime import datetime
 import gspread
 from google.oauth2.service_account import Credentials
 
-# Google Sheets setup
+# --- Configuration ---
 GSHEET_URL = "https://docs.google.com/spreadsheets/d/143qPp6BdeGu9qgjMMqZgVmOwqGLablvjw5axtDdWIxQ/edit?gid=0#gid=0"
 SHEET_NAME = "DailyData"
 
-@st.cache_resource(ttl=3600)
+# Email setup - IMPORTANT: Store these in Streamlit secrets for production
+ADMIN_PASSWORD = "Scorpio143"  # Consider moving this to st.secrets as well
+SENDER_EMAIL = "jxrjaxib@gmail.com"
+SENDER_PASS = "fqkr ekzp ocfz sgpy" # This should be an App Password, not your regular Gmail password.
+RECEIVER_EMAIL = "hafizjazib6@gmail.com"
+
+# Define expected headers for clarity and potential use in get_all_records
+EXPECTED_HEADERS = ['date', 'datetime', 'amount', 'currency', 'client', 'paid',
+                    'video_name', 'length_min', 'initial_date', 'deadline']
+
+# --- Google Sheets Functions ---
+@st.cache_resource(ttl=3600) # Cache the client for 1 hour to avoid re-authenticating frequently
 def get_gsheet_client():
-    scopes = ['https://www.googleapis.com/auth/spreadsheets',
-              'https://www.googleapis.com/auth/drive']
-    
-    # Ensure 'gcp_service_account' is correctly configured in Streamlit secrets
-    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
-    return gspread.authorize(creds)
+    """Initializes and returns a gspread client using Streamlit secrets."""
+    scopes = [
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/drive' # Needed for some gspread operations
+    ]
+    try:
+        # Ensure 'gcp_service_account' is correctly configured in Streamlit secrets
+        creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
+        return gspread.authorize(creds)
+    except Exception as e:
+        st.error(f"Failed to authenticate with Google Sheets. Check 'gcp_service_account' in secrets: {e}")
+        st.stop() # Stop the app if authentication fails
 
 def load_video_data():
-    """Loads video data from Google Sheet into a pandas DataFrame."""
+    """Loads video data from the Google Sheet into a pandas DataFrame."""
     try:
         client = get_gsheet_client()
         sheet = client.open_by_url(GSHEET_URL).worksheet(SHEET_NAME)
-        data = sheet.get_all_records()
+        
+        # Use get_all_records with expected_headers for robustness against unexpected sheet headers
+        # This will map data based on the expected_headers list.
+        data = sheet.get_all_records(expected_headers=EXPECTED_HEADERS)
+        
         df = pd.DataFrame(data)
         
-        # Convert data types safely
+        # Ensure columns are in the correct order and have proper data types
+        df = df[EXPECTED_HEADERS] # Reorder columns to match expected
         df['paid'] = df['paid'].astype(bool)
         df['amount'] = pd.to_numeric(df['amount'], errors='coerce').fillna(0.0)
         df['length_min'] = pd.to_numeric(df['length_min'], errors='coerce').fillna(0.0)
         
         return df
+    except gspread.exceptions.WorksheetNotFound:
+        st.error(f"Worksheet '{SHEET_NAME}' not found in the spreadsheet. Please check the SHEET_NAME variable.")
+        return pd.DataFrame(columns=EXPECTED_HEADERS)
     except Exception as e:
-        st.error(f"Error loading video data from Google Sheet. Please check credentials, sheet URL, and permissions: {e}")
-        # Return an empty DataFrame with expected columns to prevent downstream errors
-        return pd.DataFrame(columns=['date', 'datetime', 'amount', 'currency', 'client', 'paid',
-                                     'video_name', 'length_min', 'initial_date', 'deadline'])
+        st.error(f"Error loading video data from Google Sheet. Ensure sheet URL, name, and service account permissions are correct. Error: {e}")
+        return pd.DataFrame(columns=EXPECTED_HEADERS) # Return empty DataFrame on failure
 
 def save_video_entry(amount, currency, client, paid, video_name, length_min, initial_date, deadline):
     """Saves a new video entry to the Google Sheet and sends an email notification."""
@@ -45,7 +68,7 @@ def save_video_entry(amount, currency, client, paid, video_name, length_min, ini
     today = now.strftime("%Y-%m-%d")
     timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
     
-    new_entry = {
+    new_entry_dict = {
         "date": today,
         "datetime": timestamp,
         "amount": amount,
@@ -63,8 +86,11 @@ def save_video_entry(amount, currency, client, paid, video_name, length_min, ini
         spreadsheet = client_gs.open_by_url(GSHEET_URL)
         sheet = spreadsheet.worksheet(SHEET_NAME)
         
+        # Convert dict to list based on EXPECTED_HEADERS order
+        new_entry_values = [new_entry_dict[col] for col in EXPECTED_HEADERS]
+        
         # Append the new entry as a row
-        sheet.append_row(list(new_entry.values()), value_input_option='USER_ENTERED')
+        sheet.append_row(new_entry_values, value_input_option='USER_ENTERED')
         
         st.success("Video entry added successfully!")
         
@@ -86,12 +112,25 @@ Deadline: {deadline}
     except Exception as e:
         st.error(f"Failed to save video entry or send email: {e}")
 
-# Email setup
-ADMIN_PASSWORD = "Scorpio143"  # Consider using Streamlit secrets for this as well
-SENDER_EMAIL = "jxrjaxib@gmail.com"
-SENDER_PASS = "fqkr ekzp ocfz sgpy" # This is an App Password, not your regular Gmail password.
-RECEIVER_EMAIL = "hafizjazib6@gmail.com"
+def update_entire_sheet(df_to_update):
+    """Updates the entire Google Sheet with the content of a DataFrame."""
+    try:
+        client = get_gsheet_client()
+        sheet = client.open_by_url(GSHEET_URL).worksheet(SHEET_NAME)
+        
+        # Clear existing data and then write the updated DataFrame
+        # This is a full overwrite, so it's efficient for moderate sheet sizes.
+        sheet.clear()
+        
+        # Convert DataFrame to a list of lists, including headers
+        data_to_write = [df_to_update.columns.values.tolist()] + df_to_update.values.tolist()
+        
+        sheet.update(data_to_write, value_input_option='USER_ENTERED')
+        st.success("Sheet updated successfully (paid status changes applied).")
+    except Exception as e:
+        st.error(f"Failed to update Google Sheet: {e}")
 
+# --- Email Functions ---
 def send_notification_email(subject, content):
     """Sends an email notification."""
     try:
@@ -105,9 +144,9 @@ def send_notification_email(subject, content):
             smtp.login(SENDER_EMAIL, SENDER_PASS)
             smtp.send_message(msg)
     except Exception as e:
-        st.warning(f"Email sending failed: {e}. Please check SENDER_EMAIL, SENDER_PASS, and internet connection.")
+        st.warning(f"Email sending failed: {e}. Please check SENDER_EMAIL, SENDER_PASS (App Password), and internet connection.")
 
-# Utility Functions
+# --- Utility Functions ---
 def get_month_name(date_str):
     """Converts a date string (YYYY-MM-DD) to a Month Year format (e.g., "January 2023")."""
     try:
@@ -124,12 +163,13 @@ def extract_time(datetime_str):
         return "Time Unknown"
 
 def rerun():
-    """Forces Streamlit to rerun the script."""
+    """Forces Streamlit to rerun the script immediately."""
+    # This toggles a session state variable to ensure a rerun
     st.session_state["__rerun_flag__"] = not st.session_state.get("__rerun_flag__", False)
     st.experimental_rerun() # Use experimental_rerun for immediate rerun
 
 def format_text(date, amount, currency, client, video_name, length_min, paid, initial, deadline, time_str):
-    """Formats video entry details for display."""
+    """Formats video entry details for display with HTML."""
     client_fmt = f"<b style='color: lightgreen;'>{client}</b>"
     video_fmt = f"<b style='color: deepskyblue;'>{video_name}</b>"
     amount_fmt = f"<b style='color: #FFD700;'>{currency} {amount:.2f}</b>"
@@ -143,51 +183,37 @@ def format_text(date, amount, currency, client, video_name, length_min, paid, in
     </div>
     """
 
-def update_entire_sheet(df_to_update):
-    """Updates the entire Google Sheet with the content of a DataFrame."""
-    try:
-        client = get_gsheet_client()
-        sheet = client.open_by_url(GSHEET_URL).worksheet(SHEET_NAME)
-        
-        # Clear existing data and then write the updated DataFrame
-        # This is a full overwrite, use with caution for large sheets
-        sheet.clear()
-        sheet.update([df_to_update.columns.values.tolist()] + df_to_update.values.tolist())
-        st.success("Sheet updated successfully (paid status changes applied).")
-    except Exception as e:
-        st.error(f"Failed to update Google Sheet: {e}")
-
-# Main App
+# --- Main Streamlit Application ---
 def main():
     st.set_page_config(layout="wide", page_title="Buraaq Studios Analysis")
     st.title("🎬 Buraaq Studios Analysis")
 
-    # Initialize session states
+    # Initialize session states if not already present
     if 'admin_mode' not in st.session_state:
         st.session_state.admin_mode = False
     if 'edit_index' not in st.session_state:
         st.session_state.edit_index = None
-    if '__rerun_flag__' not in st.session_state: # Used for general rerunning
+    if '__rerun_flag__' not in st.session_state: 
         st.session_state['__rerun_flag__'] = False
 
-    # Load data at the beginning of the script run
+    # Load data from Google Sheet
     df = load_video_data()
 
     # --- Sidebar for Unpaid Videos and Admin Login ---
     with st.sidebar:
         st.header("🧾 Unpaid PKR Videos")
         unpaid_pkr = df[(df['currency'] == "PKR") & (~df['paid'])]
-        paid_changed = False
+        paid_changed = False # Flag to check if any paid status was changed
+
         if unpaid_pkr.empty:
             st.info("All PKR videos are marked as paid.")
         else:
             for i, row in unpaid_pkr.iterrows():
                 label = f"{row['date']} | {row['amount']} PKR | Client: {row['client']} | Video: {row['video_name']} | Length: {row['length_min']} min"
-                # Use a unique key for each checkbox
+                # Use row.name as a unique key for checkboxes in case of re-indexing
                 paid_new = st.checkbox(label, value=False, key=f"unpaid_paid_chk_pkr_{row.name}") 
                 if paid_new:
-                    # Update the DataFrame directly
-                    df.at[row.name, 'paid'] = True 
+                    df.at[row.name, 'paid'] = True # Update the DataFrame directly
                     paid_changed = True
 
         st.header("💵 Unpaid USD Videos")
@@ -197,17 +223,15 @@ def main():
         else:
             for i, row in unpaid_usd.iterrows():
                 label = f"{row['date']} | ${row['amount']:.2f} | Client: {row['client']} | Video: {row['video_name']}"
-                # Use a unique key for each checkbox
                 paid_new = st.checkbox(label, value=False, key=f"unpaid_paid_chk_usd_{row.name}")
                 if paid_new:
-                    # Update the DataFrame directly
                     df.at[row.name, 'paid'] = True
                     paid_changed = True
 
-        # If any paid status changed, update the sheet and rerun
+        # If any paid status changed, update the sheet and rerun the app
         if paid_changed:
             update_entire_sheet(df)
-            rerun() # Rerun to refresh the data displayed
+            rerun() # Forces a rerun to refresh the displayed data
 
         with st.expander("🔐 Admin Login"):
             if not st.session_state.admin_mode:
@@ -227,13 +251,14 @@ def main():
                     st.success("Logged out.")
                     rerun()
 
-    # --- Main content area ---
+    # --- Main content area: Menu Navigation ---
     menu_options = ["Submit Video", "View Monthly Breakdown"]
     if st.session_state.admin_mode:
         menu_options.append("Admin: Edit Entries")
     
     choice = st.selectbox("Menu", menu_options, key="main_menu_select")
 
+    # --- Submit Video Section ---
     if choice == "Submit Video":
         st.subheader("Add New Video Earning Entry")
         with st.form("new_video_entry_form"):
@@ -246,8 +271,8 @@ def main():
             
             today_date = datetime.today().date()
             initial_date = st.date_input("Initial Date", value=today_date, key="initial_date_input")
-            deadline = st.date_input("Deadline", value=today_date, key="deadline_date_input") # Set a default for deadline too
-
+            deadline = st.date_input("Deadline", value=today_date, key="deadline_date_input") # Default to today
+            
             length_min = 0.0
             amount = 0.0
 
@@ -266,27 +291,31 @@ def main():
             submitted = st.form_submit_button("Add Entry")
 
             if submitted:
-                if currency == "PKR" and (length_min <= 0 or amount <= 0 or not video_name.strip()):
+                # Validation logic for form submission
+                if currency == "PKR":
                     if length_min <= 0:
                         st.error("For PKR videos, please enter video length greater than zero.")
+                        return
                     if amount <= 0:
                         st.error("For PKR videos, please enter a valid amount (either calculate or enter manually).")
+                        return
                     if not video_name.strip():
-                        st.error("Please enter the video name.")
-                    return # Stop execution if validation fails
-                
-                if currency == "USD" and (amount <= 0 or not video_name.strip()):
+                        st.error("Please enter the video name for PKR videos.")
+                        return
+                elif currency == "USD":
                     if amount <= 0:
                         st.error("For USD videos, please enter an amount greater than zero.")
+                        return
                     if not video_name.strip():
                         st.warning("It's recommended to enter a video name for USD entries.")
-                        # Allow submission but warn
-
-                # If all validations pass or it's a USD with no video name
+                        # Allow submission but warn user
+                
+                # If all validations pass, save the entry
                 save_video_entry(amount, currency, client, paid, video_name, length_min,
                                  initial_date.strftime("%Y-%m-%d"), deadline.strftime("%Y-%m-%d"))
-                # Rerun is called inside save_video_entry upon success
+                # Rerun is called inside save_video_entry upon successful save
 
+    # --- View Monthly Breakdown Section ---
     elif choice == "View Monthly Breakdown":
         st.subheader("📆 Monthly Video & Earnings Breakdown")
         if df.empty:
@@ -296,7 +325,7 @@ def main():
             df['month'] = df['date'].apply(get_month_name)
             
             # Client Filter
-            clients = sorted(df['client'].dropna().unique().tolist()) # .tolist() to ensure it's a list for selectbox
+            clients = sorted(df['client'].dropna().unique().tolist())
             selected_client = st.selectbox("Filter by Client", ["All"] + clients, key="client_filter_select")
             
             filtered_df = df[df['client'] == selected_client] if selected_client != "All" else df
@@ -351,6 +380,7 @@ def main():
                                                     row['length_min'], row['paid'], row['initial_date'], row['deadline'], time_str)
                             st.markdown(formatted, unsafe_allow_html=True)
 
+    # --- Admin: Edit Entries Section ---
     elif choice == "Admin: Edit Entries":
         if not st.session_state.admin_mode:
             st.warning("Please log in as admin to access this section.")
@@ -361,26 +391,25 @@ def main():
             st.info("No video data available to edit.")
             return
 
-        # Display data in a DataFrame for easy editing.
-        # This requires Streamlit's data editor, which provides interactive editing.
         st.write("Edit the table below directly:")
         edited_df = st.data_editor(
             df, 
             key="admin_data_editor",
             column_config={
-                "date": st.column_config.DateColumn("Date", format="YYYY-MM-DD"),
-                "datetime": st.column_config.DatetimeColumn("Timestamp", format="YYYY-MM-DD HH:mm:ss"),
-                "amount": st.column_config.NumberColumn("Amount", format="%.2f"),
-                "currency": st.column_config.SelectboxColumn("Currency", options=["PKR", "USD"]),
-                "client": st.column_config.TextColumn("Client"),
-                "paid": st.column_config.CheckboxColumn("Paid"),
-                "video_name": st.column_config.TextColumn("Video Name"),
-                "length_min": st.column_config.NumberColumn("Length (min)", format="%.1f"),
-                "initial_date": st.column_config.DateColumn("Initial Date", format="YYYY-MM-DD"),
-                "deadline": st.column_config.DateColumn("Deadline", format="YYYY-MM-DD")
+                # Define column configurations for better user experience in data editor
+                "date": st.column_config.DateColumn("Date", format="YYYY-MM-DD", help="Date of entry"),
+                "datetime": st.column_config.DatetimeColumn("Timestamp", format="YYYY-MM-DD HH:mm:ss", help="Exact time of entry"),
+                "amount": st.column_config.NumberColumn("Amount", format="%.2f", help="Earning amount"),
+                "currency": st.column_config.SelectboxColumn("Currency", options=["PKR", "USD"], help="Currency of earning"),
+                "client": st.column_config.TextColumn("Client", help="Name of the client"),
+                "paid": st.column_config.CheckboxColumn("Paid", help="Has the payment been received?"),
+                "video_name": st.column_config.TextColumn("Video Name", help="Name or description of the video"),
+                "length_min": st.column_config.NumberColumn("Length (min)", format="%.1f", help="Video length in minutes (primarily for PKR)"),
+                "initial_date": st.column_config.DateColumn("Initial Date", format="YYYY-MM-DD", help="Date work started"),
+                "deadline": st.column_config.DateColumn("Deadline", format="YYYY-MM-DD", help="Date work is due")
             },
-            num_rows="dynamic", # Allows adding/deleting rows if needed
-            hide_index=True # Hides the DataFrame index
+            num_rows="dynamic", # Allows adding/deleting rows
+            hide_index=True # Hides the DataFrame index column
         )
 
         if st.button("Save Changes to Sheet", key="save_admin_changes_btn"):
@@ -390,12 +419,15 @@ def main():
                 edited_df['amount'] = pd.to_numeric(edited_df['amount'], errors='coerce').fillna(0.0)
                 edited_df['length_min'] = pd.to_numeric(edited_df['length_min'], errors='coerce').fillna(0.0)
                 
+                # Reorder columns to ensure they match the sheet's expected order
+                edited_df = edited_df[EXPECTED_HEADERS]
+
                 update_entire_sheet(edited_df)
                 st.success("Changes saved successfully!")
                 rerun() # Rerun to reflect changes and refresh the display
             except Exception as e:
                 st.error(f"Error saving changes: {e}")
-                st.warning("Please ensure all entries have valid data types (e.g., numbers for amount/length, correct date formats).")
+                st.warning("Please ensure all entries have valid data types (e.g., numbers for amount/length, correct date formats) and all required columns are present.")
 
 
 if __name__ == "__main__":
