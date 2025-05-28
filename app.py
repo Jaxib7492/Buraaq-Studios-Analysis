@@ -195,7 +195,7 @@ def main():
         menu.append("Admin: Edit Entries")
     choice = st.selectbox("Menu", menu)
 
- if choice == "Submit Video":
+if choice == "Submit Video":
     st.subheader("Add Video Earning")
     currency = st.selectbox("Select Currency", ["USD", "PKR"])
     client = st.text_input("Enter Client Name (optional)")
