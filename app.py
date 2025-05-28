@@ -142,7 +142,7 @@ def update_entire_sheet(df_to_update):
         data_to_write = [df_to_write.columns.values.tolist()] + df_to_write.values.tolist()
         
         sheet.update(data_to_write, value_input_option='USER_ENTERED')
-        st.success("Sheet updated successfully (paid status changes applied).")
+        st.success("Sheet updated successfully.")
     except Exception as e:
         st.error(f"Failed to update Google Sheet: {e}")
 
@@ -280,12 +280,9 @@ def main():
     if choice == "Submit Video":
         st.subheader("Add New Video Earning Entry")
         
-        # KEY CHANGE: Move currency selection OUTSIDE the form
         currency = st.selectbox("Select Currency", ["USD", "PKR"], key="currency_select_main") 
         
         with st.form("new_video_entry_form"):
-            # Now, `currency` is already defined from the selectbox above,
-            # and changes to it will trigger a rerun of the app, instantly updating the form.
             client = st.text_input("Enter Client Name (optional)", key="client_name_input")
             paid = st.checkbox("Mark as Paid", key="paid_checkbox")
             
@@ -299,7 +296,6 @@ def main():
             length_min = 0.0
             amount = 0.0
 
-            # Conditional rendering of inputs based on the currency value
             if currency == "PKR":
                 length_min = st.number_input("Enter Video Length (minutes)", min_value=0.0, step=0.1, key="length_min_input")
                 pkr_per_minute = st.number_input("Enter PKR per minute rate (optional)", min_value=0.0, step=0.1, key="pkr_rate_input")
@@ -312,11 +308,9 @@ def main():
             else: # USD
                 amount = st.number_input("Enter Video Amount (USD)", min_value=0.0, step=0.01, key="usd_amount_input")
 
-            # Submit button for the form
             submitted = st.form_submit_button("Add Entry")
 
             if submitted:
-                # Validation logic for form submission
                 if currency == "PKR":
                     if length_min <= 0:
                         st.error("For PKR videos, please enter video length greater than zero.")
@@ -336,7 +330,6 @@ def main():
                 
                 save_video_entry(amount, currency, client, paid, video_name, length_min,
                                  initial_date.strftime("%Y-%m-%d"), deadline.strftime("%Y-%m-%d"))
-                # Rerun is called inside save_video_entry upon successful save
 
     # --- View Monthly Breakdown Section ---
     elif choice == "View Monthly Breakdown":
@@ -347,9 +340,9 @@ def main():
             df['month'] = df['date'].apply(get_month_name)
             
             clients = sorted(df['client'].dropna().unique().tolist())
-            selected_client = st.selectbox("Filter by Client", ["All"] + clients, key="client_filter_select")
+            selected_client_breakdown = st.selectbox("Filter by Client", ["All"] + clients, key="client_filter_select_breakdown")
             
-            filtered_df = df[df['client'] == selected_client] if selected_client != "All" else df
+            filtered_df_breakdown = df[df['client'] == selected_client_breakdown] if selected_client_breakdown != "All" else df
 
             def is_valid_month_format(m):
                 try:
@@ -358,7 +351,7 @@ def main():
                 except:
                     return False
 
-            months = [m for m in filtered_df['month'].unique() if is_valid_month_format(m)]
+            months = [m for m in filtered_df_breakdown['month'].unique() if is_valid_month_format(m)]
             months_sorted = sorted(months, key=lambda m: datetime.strptime(m, "%B %Y"), reverse=True)
 
             if not months_sorted:
@@ -366,7 +359,7 @@ def main():
                 return
 
             for month in months_sorted:
-                monthly_data = filtered_df[filtered_df['month'] == month]
+                monthly_data = filtered_df_breakdown[filtered_df_breakdown['month'] == month]
                 
                 for curr in monthly_data['currency'].unique():
                     currency_data = monthly_data[monthly_data['currency'] == curr]
@@ -407,9 +400,16 @@ def main():
             st.info("No video data available to edit.")
             return
 
+        # Add Client Filter for Edit Entries
+        clients = sorted(df['client'].dropna().unique().tolist())
+        selected_client_edit = st.selectbox("Filter by Client", ["All"] + clients, key="client_filter_select_edit")
+        
+        # Apply filter for display
+        display_df = df[df['client'] == selected_client_edit] if selected_client_edit != "All" else df
+
         st.write("Edit the table below directly:")
-        edited_df = st.data_editor(
-            df, 
+        edited_df_result = st.data_editor(
+            display_df, # Pass the filtered DataFrame for display
             key="admin_data_editor",
             column_config={
                 "date": st.column_config.DateColumn("Date", format="YYYY-MM-DD", help="Date of entry"),
@@ -428,17 +428,87 @@ def main():
         )
 
         if st.button("Save Changes to Sheet", key="save_admin_changes_btn"):
-            try:
-                edited_df['paid'] = edited_df['paid'].astype(bool)
-                edited_df['amount'] = pd.to_numeric(edited_df['amount'], errors='coerce').fillna(0.0)
-                edited_df['length_min'] = pd.to_numeric(edited_df['length_min'], errors='coerce').fillna(0.0)
+            # Get changes from the data_editor's session state
+            edited_rows = st.session_state["admin_data_editor"]["edited_rows"]
+            added_rows = st.session_state["admin_data_editor"]["added_rows"]
+            deleted_rows = st.session_state["admin_data_editor"]["deleted_rows"]
+
+            updated_df = df.copy() # Start with a copy of the original full DataFrame
+
+            # 1. Handle Deletions
+            if deleted_rows:
+                updated_df = updated_df.drop(index=list(deleted_rows))
+                st.info(f"Deleted {len(deleted_rows)} rows.")
+
+            # 2. Handle Edits
+            for idx, changes in edited_rows.items():
+                for col, value in changes.items():
+                    # Special handling for date columns from data_editor might return datetime.date or str
+                    if col in ['date', 'initial_date', 'deadline']:
+                        if isinstance(value, str):
+                            try:
+                                updated_df.at[idx, col] = datetime.strptime(value, "%Y-%m-%d").date()
+                            except ValueError:
+                                st.warning(f"Invalid date format for row {idx}, column {col}: '{value}'. Skipping update for this cell.")
+                                continue # Skip this cell but continue with others
+                        else: # Assume it's already a date object
+                            updated_df.at[idx, col] = value
+                    elif col == 'datetime':
+                        if isinstance(value, str):
+                            try:
+                                updated_df.at[idx, col] = datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+                            except ValueError:
+                                st.warning(f"Invalid datetime format for row {idx}, column {col}: '{value}'. Skipping update for this cell.")
+                                continue
+                        else: # Assume it's already a datetime object
+                            updated_df.at[idx, col] = value
+                    elif col == 'paid': # Ensure boolean type
+                        updated_df.at[idx, col] = bool(value)
+                    elif col in ['amount', 'length_min']: # Ensure numeric type
+                        updated_df.at[idx, col] = pd.to_numeric(value, errors='coerce').fillna(0.0)
+                    else:
+                        updated_df.at[idx, col] = value
+            
+            if edited_rows:
+                st.info(f"Edited {len(edited_rows)} rows.")
+
+            # 3. Handle Additions
+            if added_rows:
+                # Convert added_rows to a DataFrame and concatenate
+                added_df = pd.DataFrame(added_rows)
+                # Ensure correct types for added rows before concat
+                added_df['paid'] = added_df['paid'].astype(bool)
+                added_df['amount'] = pd.to_numeric(added_df['amount'], errors='coerce').fillna(0.0)
+                added_df['length_min'] = pd.to_numeric(added_df['length_min'], errors='coerce').fillna(0.0)
+                # Convert date columns to date objects
+                for col in ['date', 'initial_date', 'deadline']:
+                    added_df[col] = pd.to_datetime(added_df[col], errors='coerce').dt.date
+                added_df['datetime'] = pd.to_datetime(added_df['datetime'], errors='coerce')
                 
-                update_entire_sheet(edited_df)
-                st.success("Changes saved successfully!")
-                rerun()
-            except Exception as e:
-                st.error(f"Error saving changes: {e}")
-                st.warning("Please ensure all entries have valid data types (e.g., numbers for amount/length, correct date formats) and all required columns are present.")
+                # Make sure added_df has all EXPECTED_HEADERS, fill missing with defaults if necessary
+                for col in EXPECTED_HEADERS:
+                    if col not in added_df.columns:
+                        # Assign a default based on expected type
+                        if col in ['amount', 'length_min']: added_df[col] = 0.0
+                        elif col == 'paid': added_df[col] = False
+                        elif col in ['date', 'initial_date', 'deadline']: added_df[col] = datetime.now().date()
+                        elif col == 'datetime': added_df[col] = datetime.now()
+                        else: added_df[col] = '' # Default for string columns
+
+                added_df = added_df[EXPECTED_HEADERS] # Ensure order for consistency
+                updated_df = pd.concat([updated_df, added_df], ignore_index=True)
+                st.info(f"Added {len(added_rows)} new rows.")
+
+            if edited_rows or added_rows or deleted_rows:
+                try:
+                    update_entire_sheet(updated_df)
+                    st.success("Changes saved successfully!")
+                    rerun() # Rerun to refresh the displayed data with the latest from GSheet
+                except Exception as e:
+                    st.error(f"Error saving changes: {e}")
+                    st.warning("Please ensure all entries have valid data types (e.g., numbers for amount/length, correct date formats) and all required columns are present.")
+            else:
+                st.info("No changes to save.")
 
 
 if __name__ == "__main__":
