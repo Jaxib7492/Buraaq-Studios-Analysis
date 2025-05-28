@@ -194,6 +194,7 @@ def main():
     if st.session_state.admin_mode:
         menu.append("Admin: Edit Entries")
     choice = st.selectbox("Menu", menu)
+choice = st.sidebar.selectbox("Select an Option", ["Submit Video", "View Monthly Breakdown"])
 
 if choice == "Submit Video":
     st.subheader("Add Video Earning")
