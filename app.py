@@ -6,7 +6,7 @@ from datetime import datetime
 import gspread
 import json
 from google.oauth2.service_account import Credentials
-
+st.set_page_config(layout="wide")
 # Google Sheets setup
 GSHEET_URL = "https://docs.google.com/spreadsheets/d/143qPp6BdeGu9qgjMMqZgVmOwqGLablvjw5axtDdWIxQ/edit?gid=0#gid=0"
 SHEET_NAME = "DailyData"
