@@ -259,78 +259,89 @@ def main():
                         selected_day = st.selectbox("Select a date", days, key=f"day_select_{month}_{curr}")
                         day_data = currency_data[currency_data['date'] == selected_day]
                         total_day = day_data['amount'].sum()
-                        st.markdown(f"### {selected_day} | {curr} Total: {total_day:.2f}")
-                        for idx, row in day_data.iterrows():
+                        st.markdown(f"### 🗓️ {selected_day} — {len(day_data)} videos — {curr} {total_day:.2f}")
+                        for i, row in day_data.iterrows():
                             time_str = extract_time(row['datetime'])
-                            st.markdown(format_text(
-                                row['date'], row['amount'], row['currency'], row['client'], row['video_name'],
-                                row['length_min'], row['paid'], row['initial_date'], row['deadline'], time_str
-                            ), unsafe_allow_html=True)
+                            formatted = format_text(row['date'], row['amount'], row['currency'], row['client'], row['video_name'],
+                                                    row['length_min'], row['paid'], row['initial_date'], row['deadline'], time_str)
+                            st.markdown(formatted, unsafe_allow_html=True)
 
     elif choice == "Admin: Edit Entries":
-        st.subheader("🛠️ Edit Video Entries")
-
+       
+        st.subheader("Admin: Edit Existing Video Entries")
         if df.empty:
-            st.info("No entries to edit.")
+            st.info("No video data to edit.")
             return
 
-        # Create columns to display the data with an edit button
-        cols = st.columns([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0.5])
-        headers = ['Date', 'Time', 'Amount', 'Currency', 'Client', 'Paid', 'Video Name', 'Length (min)', 'Initial Date', 'Deadline', 'Edit']
-        for col, header in zip(cols, headers):
-            col.markdown(f"**{header}**")
+        clients = sorted(df['client'].dropna().unique())
+        selected_client = st.selectbox("Filter by Client", ["All"] + clients, key="admin_client_filter")
+        filtered_df = df[df['client'] == selected_client] if selected_client != "All" else df
 
-        for idx, row in df.iterrows():
-            cols = st.columns([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0.5])
-            cols[0].write(row['date'])
-            cols[1].write(row['datetime'].split(" ")[1] if isinstance(row['datetime'], str) else "")
-            cols[2].write(f"{row['amount']:.2f}")
-            cols[3].write(row['currency'])
-            cols[4].write(row['client'])
-            cols[5].write("Yes" if row['paid'] else "No")
+        st.write("### Video Entries")
+        cols = st.columns([1, 2, 2, 1, 1, 1, 1, 1])
+        headers = ["Index", "Date", "Client", "Amount", "Currency", "Paid", "Video Name", "Length (min)"]
+        for col, header in zip(cols, headers):
+            col.write(f"**{header}**")
+        for i, row in filtered_df.iterrows():
+            cols = st.columns([1, 2, 2, 1, 1, 1, 1, 1])
+            cols[0].write(i)
+            cols[1].write(row['date'])
+            cols[2].write(f"💼 {row['client']}")
+            cols[3].write(f"{row['amount']:.2f}")
+            cols[4].write(row['currency'])
+            cols[5].write("✅" if row['paid'] else "❌")
             cols[6].write(row['video_name'])
-            cols[7].write(f"{row['length_min']:.1f}")
-            cols[8].write(row['initial_date'])
-            cols[9].write(row['deadline'])
-            if cols[10].button("Edit", key=f"edit_{idx}"):
-                st.session_state.edit_index = idx
+            cols[7].write(f"{row['length_min']:.2f}")
+            if cols[-1].button("Edit", key=f"edit_btn_{i}"):
+                st.session_state.edit_index = i
+                rerun()
 
         if st.session_state.edit_index is not None:
             idx = st.session_state.edit_index
-            st.markdown("### Edit Entry")
-            row = df.loc[idx]
-            with st.form("edit_form"):
-                new_date = st.date_input("Date", datetime.strptime(row['date'], "%Y-%m-%d"))
-                new_time = st.text_input("Time (HH:MM:SS)", row['datetime'].split(" ")[1] if isinstance(row['datetime'], str) else "")
-                new_amount = st.number_input("Amount", value=float(row['amount']))
-                new_currency = st.selectbox("Currency", ["USD", "PKR"], index=0 if row['currency'] == "USD" else 1)
-                new_client = st.text_input("Client", row['client'])
-                new_paid = st.checkbox("Paid", value=row['paid'])
-                new_video_name = st.text_input("Video Name", row['video_name'])
-                new_length_min = st.number_input("Length (minutes)", value=float(row['length_min']))
-                new_initial_date = st.date_input("Initial Date", datetime.strptime(row['initial_date'], "%Y-%m-%d") if row['initial_date'] else datetime.today())
-                new_deadline = st.date_input("Deadline", datetime.strptime(row['deadline'], "%Y-%m-%d") if row['deadline'] else datetime.today())
+            if idx < 0 or idx >= len(df):
+                st.error("Invalid entry selected.")
+                st.session_state.edit_index = None
+                return
+            entry = df.loc[idx]
+            st.markdown("---")
+            st.write(f"### Editing Entry Index: {idx}")
+            new_client = st.text_input("Client", value=entry['client'])
+            new_video_name = st.text_input("Video Name", value=entry['video_name'])
+            new_length_min = st.number_input("Video Length (min)", min_value=0.0, step=0.1, value=float(entry['length_min']))
+            new_amount = st.number_input("Amount", min_value=0.0, step=0.01, value=float(entry['amount']))
+            new_currency = st.selectbox("Currency", options=["USD", "PKR"], index=0 if entry['currency'] == "USD" else 1)
+            new_paid = st.checkbox("Paid", value=entry['paid'])
 
-                submitted = st.form_submit_button("Save Changes")
-                if submitted:
-                    new_datetime = f"{new_date.strftime('%Y-%m-%d')} {new_time}"
-                    df.at[idx, 'date'] = new_date.strftime("%Y-%m-%d")
-                    df.at[idx, 'datetime'] = new_datetime
-                    df.at[idx, 'amount'] = new_amount
-                    df.at[idx, 'currency'] = new_currency
-                    df.at[idx, 'client'] = new_client
-                    df.at[idx, 'paid'] = new_paid
-                    df.at[idx, 'video_name'] = new_video_name
-                    df.at[idx, 'length_min'] = new_length_min
-                    df.at[idx, 'initial_date'] = new_initial_date.strftime("%Y-%m-%d")
-                    df.at[idx, 'deadline'] = new_deadline.strftime("%Y-%m-%d")
-                    df.to_csv(DATA_FILE, index=False, columns=[
-                        'date', 'datetime', 'amount', 'currency', 'client', 'paid',
-                        'video_name', 'length_min', 'initial_date', 'deadline'
-                    ])
-                    st.success("Entry updated successfully.")
-                    st.session_state.edit_index = None
-                    rerun()
+            if st.button("Save Changes"):
+                if new_currency == "PKR":
+                    if new_length_min <= 0 or new_amount <= 0 or not new_video_name.strip():
+                        st.error("Please enter valid values for video name, length, and amount.")
+                        return
+                df.at[idx, 'client'] = new_client
+                df.at[idx, 'video_name'] = new_video_name
+                df.at[idx, 'length_min'] = new_length_min
+                df.at[idx, 'amount'] = new_amount
+                df.at[idx, 'currency'] = new_currency
+                df.at[idx, 'paid'] = new_paid
+                df.to_csv(DATA_FILE, index=False, columns=[
+                    'date', 'datetime', 'amount', 'currency', 'client', 'paid',
+                    'video_name', 'length_min', 'initial_date', 'deadline'
+                ])
+
+                subject = "✏️ Video Entry Edited"
+                content = f"""An entry was edited (Index {idx}):
+
+Client: {new_client}
+Video Name: {new_video_name}
+Amount: {new_currency} {new_amount}
+Length: {new_length_min} min
+Paid: {'Yes' if new_paid else 'No'}
+"""
+                send_notification_email(subject, content)
+
+                st.success("Entry updated successfully!")
+                st.session_state.edit_index = None
+                rerun()
 
 if __name__ == "__main__":
     main()
