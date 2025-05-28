@@ -4,6 +4,7 @@ import smtplib
 from email.message import EmailMessage
 from datetime import datetime
 import gspread
+import json
 from google.oauth2.service_account import Credentials
 
 # Google Sheets setup
@@ -16,7 +17,7 @@ def get_gsheet_client():
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
     ]
-    import json
+    
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
     return gspread.authorize(creds)
 
