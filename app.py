@@ -63,9 +63,8 @@ def load_video_data():
 
         # Convert date columns to datetime objects
         # Use errors='coerce' to turn unparseable dates into NaT (Not a Time)
-        # Then fill NaT with a default or a sensible date if needed. For now, we'll let it be NaT.
-        # Streamlit's data_editor can usually handle NaT for DateColumns, displaying them as blank.
-        df['date'] = pd.to_datetime(df['date'], errors='coerce').dt.date # Convert to date objects for DateColumn
+        # Then convert to date objects for DateColumn
+        df['date'] = pd.to_datetime(df['date'], errors='coerce').dt.date 
         df['initial_date'] = pd.to_datetime(df['initial_date'], errors='coerce').dt.date
         df['deadline'] = pd.to_datetime(df['deadline'], errors='coerce').dt.date
         
@@ -79,7 +78,6 @@ def load_video_data():
     except Exception as e:
         st.error(f"Error loading video data from Google Sheet. Ensure sheet URL, name, and service account permissions are correct. Error: {e}")
         # Return empty DataFrame with expected columns and their default Python types
-        # This helps st.data_editor initialize with the correct schema if data loading fails
         return pd.DataFrame(columns=EXPECTED_HEADERS)
 
 def save_video_entry(amount, currency, client, paid, video_name, length_min, initial_date, deadline):
@@ -192,7 +190,8 @@ def send_notification_email(subject, content):
 def get_month_name(date_str):
     """Converts a date string (YYYY-MM-DD) to a Month Year format (e.g., "January 2023")."""
     try:
-        return datetime.strptime(str(date_str), "%Y-%m-%d").strftime("%B %Y") # Ensure date_str is string
+        # Ensure date_str is treated as a string when parsing
+        return datetime.strptime(str(date_str), "%Y-%m-%d").strftime("%B %Y") 
     except:
         return "Unknown"
 
@@ -250,9 +249,6 @@ def main():
     # --- Sidebar for Unpaid Videos and Admin Login ---
     with st.sidebar:
         st.header("🧾 Unpaid PKR Videos")
-        # Ensure you operate on a copy if you plan to modify and update df later.
-        # However, for checkbox updates, directly modifying df.at[row.name, 'paid'] is fine
-        # as it updates the original DataFrame which then gets saved and reloaded.
         unpaid_pkr = df[(df['currency'] == "PKR") & (~df['paid'])]
         paid_changed = False # Flag to check if any paid status was changed
 
@@ -261,10 +257,8 @@ def main():
         else:
             for i, row in unpaid_pkr.iterrows():
                 label = f"{row['date']} | {row['amount']} PKR | Client: {row['client']} | Video: {row['video_name']} | Length: {row['length_min']} min"
-                # IMPORTANT FIX: Use row.name for unique keys, as it's the original DataFrame index
                 paid_new = st.checkbox(label, value=False, key=f"unpaid_paid_chk_pkr_{row.name}") 
                 if paid_new:
-                    # Update the original DataFrame 'df' using its index
                     df.at[row.name, 'paid'] = True 
                     paid_changed = True
 
@@ -275,10 +269,8 @@ def main():
         else:
             for i, row in unpaid_usd.iterrows():
                 label = f"{row['date']} | ${row['amount']:.2f} | Client: {row['client']} | Video: {row['video_name']}"
-                # IMPORTANT FIX: Use row.name for unique keys
                 paid_new = st.checkbox(label, value=False, key=f"unpaid_paid_chk_usd_{row.name}")
                 if paid_new:
-                    # Update the original DataFrame 'df' using its index
                     df.at[row.name, 'paid'] = True
                     paid_changed = True
 
@@ -316,6 +308,7 @@ def main():
     if choice == "Submit Video":
         st.subheader("Add New Video Earning Entry")
         with st.form("new_video_entry_form"):
+            # Moved currency selection and conditional inputs here
             currency = st.selectbox("Select Currency", ["USD", "PKR"], key="currency_select")
             client = st.text_input("Enter Client Name (optional)", key="client_name_input")
             paid = st.checkbox("Mark as Paid", key="paid_checkbox")
@@ -325,11 +318,12 @@ def main():
             
             today_date = datetime.today().date()
             initial_date = st.date_input("Initial Date", value=today_date, key="initial_date_input")
-            deadline = st.date_input("Deadline", value=today_date, key="deadline_date_input") # Default to today
+            deadline = st.date_input("Deadline", value=today_date, key="deadline_date_input")
             
             length_min = 0.0
             amount = 0.0
 
+            # Conditional rendering of inputs based on currency selection
             if currency == "PKR":
                 length_min = st.number_input("Enter Video Length (minutes)", min_value=0.0, step=0.1, key="length_min_input")
                 pkr_per_minute = st.number_input("Enter PKR per minute rate (optional)", min_value=0.0, step=0.1, key="pkr_rate_input")
@@ -342,6 +336,7 @@ def main():
             else: # USD
                 amount = st.number_input("Enter Video Amount (USD)", min_value=0.0, step=0.01, key="usd_amount_input")
 
+            # Submit button for the form
             submitted = st.form_submit_button("Add Entry")
 
             if submitted:
@@ -349,23 +344,25 @@ def main():
                 if currency == "PKR":
                     if length_min <= 0:
                         st.error("For PKR videos, please enter video length greater than zero.")
-                        return
+                        # This return prevents further code execution in this script run
+                        st.stop() # Stops the script execution to prevent form submission
                     if amount <= 0:
                         st.error("For PKR videos, please enter a valid amount (either calculate or enter manually).")
-                        return
+                        st.stop()
                     if not video_name.strip():
                         st.error("Please enter the video name for PKR videos.")
-                        return
+                        st.stop()
                 elif currency == "USD":
                     if amount <= 0:
                         st.error("For USD videos, please enter an amount greater than zero.")
-                        return
+                        st.stop()
                     if not video_name.strip():
                         st.warning("It's recommended to enter a video name for USD entries.")
-                        # Allow submission but warn user
+                        # Allow submission but warn user; st.stop() not called here
                 
-                # If all validations pass, save the entry
-                save_video_entry(amount, currency, client, paid, video_name, length_min,
+                # If all validations pass (or only a warning for USD video name), save the entry
+                save_video_entry(amount, currency, client, video_name, length_min,
+                                 paid, # Ensure paid is passed in correct order
                                  initial_date.strftime("%Y-%m-%d"), deadline.strftime("%Y-%m-%d"))
                 # Rerun is called inside save_video_entry upon successful save
 
