@@ -218,7 +218,7 @@ def main():
         else:
             amount = st.number_input("Enter Video Amount (USD)", min_value=0.0, step=0.01)
 
-        if st.button("Add Entry"):
+if st.button("Add Entry"):
     if currency == "PKR":
         if length_min <= 0:
             st.error("Please enter video length greater than zero.")
@@ -229,6 +229,19 @@ def main():
         if not video_name.strip():
             st.error("Please enter the video name.")
             return
+
+    save_video_entry(
+        amount, currency, client, paid, video_name, length_min,
+        initial_date.strftime("%Y-%m-%d"), deadline.strftime("%Y-%m-%d")
+    )
+
+    # Clear cache to reload updated data
+    load_video_data.clear()
+    get_gsheet_client.clear()
+
+    st.success("Video entry added successfully!")
+    rerun()
+
     save_video_entry(amount, currency, client, paid, video_name, length_min,
                      initial_date.strftime("%Y-%m-%d"), deadline.strftime("%Y-%m-%d"))
     
