@@ -33,6 +33,9 @@ def load_video_data():
         return pd.DataFrame(columns=['date', 'datetime', 'amount', 'currency', 'client', 'paid',
                                      'video_name', 'length_min', 'initial_date', 'deadline'])
 
+import streamlit as st
+from datetime import datetime
+
 def save_video_entry(amount, currency, client, paid, video_name, length_min, initial_date, deadline):
     now = datetime.now()
     today = now.strftime("%Y-%m-%d")
@@ -49,8 +52,22 @@ def save_video_entry(amount, currency, client, paid, video_name, length_min, ini
         "initial_date": initial_date,
         "deadline": deadline
     }
+
+    # Get Google Sheets client (your existing function)
     client_gs = get_gsheet_client()
-    sheet = client_gs.open_by_url(GSHEET_URL).worksheet(SHEET_NAME)
+
+    # Open the spreadsheet by URL
+    spreadsheet = client_gs.open_by_url(GSHEET_URL)
+
+    # DEBUG: List all available sheet/tab names and show in Streamlit app
+    sheets = [ws.title for ws in spreadsheet.worksheets()]
+    st.write("Available sheets in the spreadsheet:", sheets)
+
+    # Now open the exact worksheet you want
+    sheet = spreadsheet.worksheet(SHEET_NAME)
+
+    # ... (rest of your code that uses 'sheet' to update/add new entry)
+
     sheet.append_row(list(new_entry.values()), value_input_option='USER_ENTERED')
 
     subject = "📥 New Video Entry Added"
