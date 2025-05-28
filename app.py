@@ -222,13 +222,13 @@ if choice == "Submit Video":
         if currency == "PKR":
             if length_min <= 0:
                 st.error("Please enter video length greater than zero.")
-                return
+                st.stop()
             if amount <= 0:
                 st.error("Please enter a valid amount (either calculate or enter manually).")
-                return
+                st.stop()
             if not video_name.strip():
                 st.error("Please enter the video name.")
-                return
+                st.stop()
 
         save_video_entry(
             amount, currency, client, paid, video_name, length_min,
@@ -239,6 +239,7 @@ if choice == "Submit Video":
         get_gsheet_client.clear()
         st.success("Video entry added successfully!")
         rerun()
+
 
 elif choice == "View Monthly Breakdown":
         st.subheader("📆 Monthly Video & Earnings Breakdown")
