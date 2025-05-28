@@ -33,9 +33,6 @@ def load_video_data():
         return pd.DataFrame(columns=['date', 'datetime', 'amount', 'currency', 'client', 'paid',
                                      'video_name', 'length_min', 'initial_date', 'deadline'])
 
-import streamlit as st
-from datetime import datetime
-
 def save_video_entry(amount, currency, client, paid, video_name, length_min, initial_date, deadline):
     now = datetime.now()
     today = now.strftime("%Y-%m-%d")
@@ -53,18 +50,9 @@ def save_video_entry(amount, currency, client, paid, video_name, length_min, ini
         "deadline": deadline
     }
 
-    # Get Google Sheets client (your existing function)
     client_gs = get_gsheet_client()
-
-    # Open the spreadsheet by URL
     spreadsheet = client_gs.open_by_url(GSHEET_URL)
-
-
-    # Now open the exact worksheet you want
     sheet = spreadsheet.worksheet(SHEET_NAME)
-
-    # ... (rest of your code that uses 'sheet' to update/add new entry)
-
     sheet.append_row(list(new_entry.values()), value_input_option='USER_ENTERED')
 
     subject = "📥 New Video Entry Added"
@@ -101,7 +89,6 @@ def send_notification_email(subject, content):
     except Exception as e:
         print(f"Email sending failed: {e}")
 
-# Utility Functions
 def get_month_name(date_str):
     try:
         return datetime.strptime(date_str, "%Y-%m-%d").strftime("%B %Y")
@@ -131,7 +118,14 @@ def format_text(date, amount, currency, client, video_name, length_min, paid, in
     </div>
     """
 
-# Main App
+def update_entire_sheet(df):
+    # Utility to update the whole sheet if needed, assume implemented elsewhere
+    client_gs = get_gsheet_client()
+    spreadsheet = client_gs.open_by_url(GSHEET_URL)
+    sheet = spreadsheet.worksheet(SHEET_NAME)
+    sheet.clear()
+    sheet.update([df.columns.values.tolist()] + df.values.tolist(), value_input_option='USER_ENTERED')
+
 def main():
     st.set_page_config(layout="wide")
     st.title("🎬 Buraaq Studios Analysis")
@@ -143,7 +137,10 @@ def main():
     if '__rerun_flag__' not in st.session_state:
         st.session_state['__rerun_flag__'] = False
 
+    # --- LOAD AND CLEAN DATA ---
     df = load_video_data()
+    df['date'] = df['date'].fillna('')  # Fix: replace NaN dates with empty string
+    df = df[df['date'] != '']            # Fix: remove rows where date is empty
 
     unpaid_pkr = df[(df['currency'] == "PKR") & (~df['paid'])]
     st.sidebar.header("🧾 Unpaid PKR Videos")
