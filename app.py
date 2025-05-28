@@ -59,9 +59,6 @@ def save_video_entry(amount, currency, client, paid, video_name, length_min, ini
     # Open the spreadsheet by URL
     spreadsheet = client_gs.open_by_url(GSHEET_URL)
 
-    # DEBUG: List all available sheet/tab names and show in Streamlit app
-    sheets = [ws.title for ws in spreadsheet.worksheets()]
-    st.write("Available sheets in the spreadsheet:", sheets)
 
     # Now open the exact worksheet you want
     sheet = spreadsheet.worksheet(SHEET_NAME)
