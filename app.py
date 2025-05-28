@@ -1,10 +1,29 @@
 import streamlit as st
 import pandas as pd
 import os
+import smtplib
+from email.message import EmailMessage
 from datetime import datetime
 
 DATA_FILE = "daily_videos.csv"
 ADMIN_PASSWORD = "Scorpio143"
+SENDER_EMAIL = "jxrjaxib@gmail.com"
+SENDER_PASS = "fqkr ekzp ocfz sgpy"
+RECEIVER_EMAIL = "hafizjazib6@gmail.com"
+
+def send_notification_email(subject, content):
+    try:
+        msg = EmailMessage()
+        msg["Subject"] = subject
+        msg["From"] = SENDER_EMAIL
+        msg["To"] = RECEIVER_EMAIL
+        msg.set_content(content)
+
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+            smtp.login(SENDER_EMAIL, SENDER_PASS)
+            smtp.send_message(msg)
+    except Exception as e:
+        print(f"Email sending failed: {e}")
 
 def load_video_data():
     if os.path.exists(DATA_FILE):
@@ -58,6 +77,22 @@ def save_video_entry(amount, currency, client, paid, video_name, length_min, ini
         'date', 'datetime', 'amount', 'currency', 'client', 'paid',
         'video_name', 'length_min', 'initial_date', 'deadline'
     ])
+
+    # Send email notification
+    subject = "📥 New Video Entry Added"
+    content = f"""New entry added:
+
+Date: {today}
+Time: {timestamp}
+Client: {client}
+Video Name: {video_name}
+Amount: {currency} {amount}
+Length: {length_min} min
+Paid: {'Yes' if paid else 'No'}
+Initial Date: {initial_date}
+Deadline: {deadline}
+"""
+    send_notification_email(subject, content)
 
 def get_month_name(date_str):
     try:
@@ -290,6 +325,18 @@ def main():
                     'date', 'datetime', 'amount', 'currency', 'client', 'paid',
                     'video_name', 'length_min', 'initial_date', 'deadline'
                 ])
+
+                subject = "✏️ Video Entry Edited"
+                content = f"""An entry was edited (Index {idx}):
+
+Client: {new_client}
+Video Name: {new_video_name}
+Amount: {new_currency} {new_amount}
+Length: {new_length_min} min
+Paid: {'Yes' if new_paid else 'No'}
+"""
+                send_notification_email(subject, content)
+
                 st.success("Entry updated successfully!")
                 st.session_state.edit_index = None
                 rerun()
