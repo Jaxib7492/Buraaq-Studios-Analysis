@@ -123,7 +123,9 @@ def update_entire_sheet(df_to_update):
         sheet.clear()
         
         # Convert DataFrame to a list of lists, including headers
-        data_to_write = [df_to_update.columns.values.tolist()] + df_to_update.values.tolist()
+        # Ensure column order matches EXPECTED_HEADERS
+        df_to_write = df_to_update[EXPECTED_HEADERS]
+        data_to_write = [df_to_write.columns.values.tolist()] + df_to_write.values.tolist()
         
         sheet.update(data_to_write, value_input_option='USER_ENTERED')
         st.success("Sheet updated successfully (paid status changes applied).")
@@ -166,7 +168,7 @@ def rerun():
     """Forces Streamlit to rerun the script immediately."""
     # This toggles a session state variable to ensure a rerun
     st.session_state["__rerun_flag__"] = not st.session_state.get("__rerun_flag__", False)
-    st.experimental_rerun() # Use experimental_rerun for immediate rerun
+    st.rerun() # Use st.rerun() for immediate rerun (stable version)
 
 def format_text(date, amount, currency, client, video_name, length_min, paid, initial, deadline, time_str):
     """Formats video entry details for display with HTML."""
@@ -202,7 +204,7 @@ def main():
     # --- Sidebar for Unpaid Videos and Admin Login ---
     with st.sidebar:
         st.header("🧾 Unpaid PKR Videos")
-        unpaid_pkr = df[(df['currency'] == "PKR") & (~df['paid'])]
+        unpaid_pkr = df[(df['currency'] == "PKR") & (~df['paid'])].copy() # Use .copy() to avoid SettingWithCopyWarning
         paid_changed = False # Flag to check if any paid status was changed
 
         if unpaid_pkr.empty:
@@ -210,21 +212,24 @@ def main():
         else:
             for i, row in unpaid_pkr.iterrows():
                 label = f"{row['date']} | {row['amount']} PKR | Client: {row['client']} | Video: {row['video_name']} | Length: {row['length_min']} min"
-                # Use row.name as a unique key for checkboxes in case of re-indexing
+                # IMPORTANT FIX: Use row.name for unique keys, as it's the original DataFrame index
                 paid_new = st.checkbox(label, value=False, key=f"unpaid_paid_chk_pkr_{row.name}") 
                 if paid_new:
-                    df.at[row.name, 'paid'] = True # Update the DataFrame directly
+                    # Update the original DataFrame 'df' using its index
+                    df.at[row.name, 'paid'] = True 
                     paid_changed = True
 
         st.header("💵 Unpaid USD Videos")
-        unpaid_usd = df[(df['currency'] == "USD") & (~df['paid'])]
+        unpaid_usd = df[(df['currency'] == "USD") & (~df['paid'])].copy() # Use .copy()
         if unpaid_usd.empty:
             st.info("All USD videos are marked as paid.")
         else:
             for i, row in unpaid_usd.iterrows():
                 label = f"{row['date']} | ${row['amount']:.2f} | Client: {row['client']} | Video: {row['video_name']}"
+                # IMPORTANT FIX: Use row.name for unique keys
                 paid_new = st.checkbox(label, value=False, key=f"unpaid_paid_chk_usd_{row.name}")
                 if paid_new:
+                    # Update the original DataFrame 'df' using its index
                     df.at[row.name, 'paid'] = True
                     paid_changed = True
 
