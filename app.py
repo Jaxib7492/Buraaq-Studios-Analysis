@@ -18,7 +18,8 @@ def get_gsheet_client():
     
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
     return gspread.authorize(creds)
-
+    
+@st.cache_data(ttl=3600)
 def load_video_data():
     try:
         client = get_gsheet_client()
@@ -139,6 +140,7 @@ def main():
 
     # --- LOAD AND CLEAN DATA ---
     df = load_video_data()
+    st.write("Loaded Data Preview:", df.head())  # <--- Add this here for debugging
     df['date'] = df['date'].fillna('')  # Fix: replace NaN dates with empty string
     df = df[df['date'] != '']            # Fix: remove rows where date is empty
 
@@ -217,20 +219,26 @@ def main():
             amount = st.number_input("Enter Video Amount (USD)", min_value=0.0, step=0.01)
 
         if st.button("Add Entry"):
-            if currency == "PKR":
-                if length_min <= 0:
-                    st.error("Please enter video length greater than zero.")
-                    return
-                if amount <= 0:
-                    st.error("Please enter a valid amount (either calculate or enter manually).")
-                    return
-                if not video_name.strip():
-                    st.error("Please enter the video name.")
-                    return
-            save_video_entry(amount, currency, client, paid, video_name, length_min,
-                             initial_date.strftime("%Y-%m-%d"), deadline.strftime("%Y-%m-%d"))
-            st.success("Video entry added successfully!")
-            rerun()
+    if currency == "PKR":
+        if length_min <= 0:
+            st.error("Please enter video length greater than zero.")
+            return
+        if amount <= 0:
+            st.error("Please enter a valid amount (either calculate or enter manually).")
+            return
+        if not video_name.strip():
+            st.error("Please enter the video name.")
+            return
+    save_video_entry(amount, currency, client, paid, video_name, length_min,
+                     initial_date.strftime("%Y-%m-%d"), deadline.strftime("%Y-%m-%d"))
+    
+    # Clear cache so new data is loaded
+    load_video_data.clear()
+    get_gsheet_client.clear()
+    
+    st.success("Video entry added successfully!")
+    rerun()
+
 
     elif choice == "View Monthly Breakdown":
         st.subheader("📆 Monthly Video & Earnings Breakdown")
