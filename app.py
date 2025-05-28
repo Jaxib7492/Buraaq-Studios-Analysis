@@ -8,7 +8,7 @@ import json
 from google.oauth2.service_account import Credentials
 
 # Google Sheets setup
-GSHEET_URL = "https://docs.google.com/spreadsheets/d/143qPp6BdeGu9qgjMMqZgVmOwqGLablvjw5axtDdWIxQ"
+GSHEET_URL = "https://docs.google.com/spreadsheets/d/143qPp6BdeGu9qgjMMqZgVmOwqGLablvjw5axtDdWIxQ/edit?usp=sharing"
 SHEET_NAME = "Daily_Data_Analysis"
 
 @st.cache_resource(ttl=3600)
