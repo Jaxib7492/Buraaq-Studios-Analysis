@@ -16,7 +16,7 @@ def get_gsheet_client():
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
     ]
-    creds = Credentials.from_service_account_file("credentials.json", scopes=scopes)
+    creds = Credentials.from_service_account_info(json.loads(st.secrets["gcp_service_account"]), scopes=scopes)
     return gspread.authorize(creds)
 
 def load_video_data():
