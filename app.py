@@ -78,7 +78,6 @@ def save_video_entry(amount, currency, client, paid, video_name, length_min, ini
         'video_name', 'length_min', 'initial_date', 'deadline'
     ])
 
-    # Send email notification
     subject = "📥 New Video Entry Added"
     content = f"""New entry added:
 
@@ -253,7 +252,9 @@ def main():
                 for curr in monthly_data['currency'].unique():
                     currency_data = monthly_data[monthly_data['currency'] == curr]
                     total_currency_monthly = currency_data['amount'].sum()
-                    with st.expander(f"📅 {month} — {curr} Total: {total_currency_monthly:.2f}"):
+                    paid_total = currency_data[currency_data['paid']]['amount'].sum()
+                    unpaid_total = total_currency_monthly - paid_total
+                    with st.expander(f"📅 {month} — {curr} Total: {total_currency_monthly:.2f} | Earned: {paid_total:.2f} | To be Paid: {unpaid_total:.2f}"):
                         days = sorted(currency_data['date'].unique(), reverse=True)
                         selected_day = st.selectbox("Select a date", days, key=f"day_select_{month}_{curr}")
                         day_data = currency_data[currency_data['date'] == selected_day]
@@ -266,6 +267,7 @@ def main():
                             st.markdown(formatted, unsafe_allow_html=True)
 
     elif choice == "Admin: Edit Entries":
+       
         st.subheader("Admin: Edit Existing Video Entries")
         if df.empty:
             st.info("No video data to edit.")
