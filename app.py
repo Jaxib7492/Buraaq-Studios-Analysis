@@ -6,7 +6,7 @@ from datetime import datetime
 import gspread
 import json
 from google.oauth2.service_account import Credentials
-st.set_page_config(layout="wide")
+
 # Google Sheets setup
 GSHEET_URL = "https://docs.google.com/spreadsheets/d/143qPp6BdeGu9qgjMMqZgVmOwqGLablvjw5axtDdWIxQ/edit?gid=0#gid=0"
 SHEET_NAME = "DailyData"
@@ -18,8 +18,7 @@ def get_gsheet_client():
     
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
     return gspread.authorize(creds)
-    
-@st.cache_data(ttl=3600)
+
 def load_video_data():
     try:
         client = get_gsheet_client()
@@ -33,6 +32,9 @@ def load_video_data():
     except:
         return pd.DataFrame(columns=['date', 'datetime', 'amount', 'currency', 'client', 'paid',
                                      'video_name', 'length_min', 'initial_date', 'deadline'])
+
+import streamlit as st
+from datetime import datetime
 
 def save_video_entry(amount, currency, client, paid, video_name, length_min, initial_date, deadline):
     now = datetime.now()
@@ -51,9 +53,18 @@ def save_video_entry(amount, currency, client, paid, video_name, length_min, ini
         "deadline": deadline
     }
 
+    # Get Google Sheets client (your existing function)
     client_gs = get_gsheet_client()
+
+    # Open the spreadsheet by URL
     spreadsheet = client_gs.open_by_url(GSHEET_URL)
+
+
+    # Now open the exact worksheet you want
     sheet = spreadsheet.worksheet(SHEET_NAME)
+
+    # ... (rest of your code that uses 'sheet' to update/add new entry)
+
     sheet.append_row(list(new_entry.values()), value_input_option='USER_ENTERED')
 
     subject = "📥 New Video Entry Added"
@@ -90,6 +101,7 @@ def send_notification_email(subject, content):
     except Exception as e:
         print(f"Email sending failed: {e}")
 
+# Utility Functions
 def get_month_name(date_str):
     try:
         return datetime.strptime(date_str, "%Y-%m-%d").strftime("%B %Y")
@@ -119,14 +131,7 @@ def format_text(date, amount, currency, client, video_name, length_min, paid, in
     </div>
     """
 
-def update_entire_sheet(df):
-    # Utility to update the whole sheet if needed, assume implemented elsewhere
-    client_gs = get_gsheet_client()
-    spreadsheet = client_gs.open_by_url(GSHEET_URL)
-    sheet = spreadsheet.worksheet(SHEET_NAME)
-    sheet.clear()
-    sheet.update([df.columns.values.tolist()] + df.values.tolist(), value_input_option='USER_ENTERED')
-
+# Main App
 def main():
     st.set_page_config(layout="wide")
     st.title("🎬 Buraaq Studios Analysis")
@@ -138,11 +143,7 @@ def main():
     if '__rerun_flag__' not in st.session_state:
         st.session_state['__rerun_flag__'] = False
 
-    # --- LOAD AND CLEAN DATA ---
     df = load_video_data()
-    st.write("Loaded Data Preview:", df.head())  # <--- Add this here for debugging
-    df['date'] = df['date'].fillna('')  # Fix: replace NaN dates with empty string
-    df = df[df['date'] != '']            # Fix: remove rows where date is empty
 
     unpaid_pkr = df[(df['currency'] == "PKR") & (~df['paid'])]
     st.sidebar.header("🧾 Unpaid PKR Videos")
@@ -194,55 +195,47 @@ def main():
     if st.session_state.admin_mode:
         menu.append("Admin: Edit Entries")
     choice = st.selectbox("Menu", menu)
-choice = st.sidebar.selectbox("Select an Option", ["Submit Video", "View Monthly Breakdown"])
 
-if choice == "Submit Video":
-    st.subheader("Add Video Earning")
-    currency = st.selectbox("Select Currency", ["USD", "PKR"])
-    client = st.text_input("Enter Client Name (optional)")
-    paid = st.checkbox("Mark as Paid")
-    video_name = st.text_input("Enter Video Name (optional)" if currency == "USD" else "Enter Video Name")
-    today_date = datetime.today().date()
-    initial_date = st.date_input("Initial Date", value=today_date)
-    deadline = st.date_input("Deadline")
-    length_min = 0.0
-    amount = 0.0
+    if choice == "Submit Video":
+        st.subheader("Add Video Earning")
+        currency = st.selectbox("Select Currency", ["USD", "PKR"])
+        client = st.text_input("Enter Client Name (optional)")
+        paid = st.checkbox("Mark as Paid")
+        video_name = st.text_input("Enter Video Name (optional)" if currency == "USD" else "Enter Video Name")
+        today_date = datetime.today().date()
+        initial_date = st.date_input("Initial Date", value=today_date)
+        deadline = st.date_input("Deadline")
+        length_min = 0.0
+        amount = 0.0
 
-    if currency == "PKR":
-        length_min = st.number_input("Enter Video Length (minutes)", min_value=0.0, step=0.1)
-        pkr_per_minute = st.number_input("Enter PKR per minute rate (optional)", min_value=0.0, step=0.1)
-        if pkr_per_minute > 0:
-            amount = length_min * pkr_per_minute
-            st.markdown(f"**Calculated Video Amount:** {amount:.2f} PKR")
-        else:
-            amount = st.number_input("Enter Video Amount (PKR)", min_value=0.0, step=0.01)
-    else:
-        amount = st.number_input("Enter Video Amount (USD)", min_value=0.0, step=0.01)
-
-    if st.button("Add Entry"):
         if currency == "PKR":
-            if length_min <= 0:
-                st.error("Please enter video length greater than zero.")
-                st.stop()
-            if amount <= 0:
-                st.error("Please enter a valid amount (either calculate or enter manually).")
-                st.stop()
-            if not video_name.strip():
-                st.error("Please enter the video name.")
-                st.stop()
+            length_min = st.number_input("Enter Video Length (minutes)", min_value=0.0, step=0.1)
+            pkr_per_minute = st.number_input("Enter PKR per minute rate (optional)", min_value=0.0, step=0.1)
+            if pkr_per_minute > 0:
+                amount = length_min * pkr_per_minute
+                st.markdown(f"**Calculated Video Amount:** {amount:.2f} PKR")
+            else:
+                amount = st.number_input("Enter Video Amount (PKR)", min_value=0.0, step=0.01)
+        else:
+            amount = st.number_input("Enter Video Amount (USD)", min_value=0.0, step=0.01)
 
-        save_video_entry(
-            amount, currency, client, paid, video_name, length_min,
-            initial_date.strftime("%Y-%m-%d"), deadline.strftime("%Y-%m-%d")
-        )
+        if st.button("Add Entry"):
+            if currency == "PKR":
+                if length_min <= 0:
+                    st.error("Please enter video length greater than zero.")
+                    return
+                if amount <= 0:
+                    st.error("Please enter a valid amount (either calculate or enter manually).")
+                    return
+                if not video_name.strip():
+                    st.error("Please enter the video name.")
+                    return
+            save_video_entry(amount, currency, client, paid, video_name, length_min,
+                             initial_date.strftime("%Y-%m-%d"), deadline.strftime("%Y-%m-%d"))
+            st.success("Video entry added successfully!")
+            rerun()
 
-        load_video_data.clear()
-        get_gsheet_client.clear()
-        st.success("Video entry added successfully!")
-        rerun()
-
-
-elif choice == "View Monthly Breakdown":
+    elif choice == "View Monthly Breakdown":
         st.subheader("📆 Monthly Video & Earnings Breakdown")
         if df.empty:
             st.info("No video data submitted yet.")
