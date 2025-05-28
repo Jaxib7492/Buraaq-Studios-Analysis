@@ -400,16 +400,31 @@ def main():
             st.info("No video data available to edit.")
             return
 
-        # Add Client Filter for Edit Entries
+        # Filters for Edit Entries
         clients = sorted(df['client'].dropna().unique().tolist())
         selected_client_edit = st.selectbox("Filter by Client", ["All"] + clients, key="client_filter_select_edit")
         
-        # Apply filter for display
+        # Apply client filter
         display_df = df[df['client'] == selected_client_edit] if selected_client_edit != "All" else df
 
+        # Sorting Options for Edit Entries
+        sort_columns = EXPECTED_HEADERS # All columns are potential sort columns
+        selected_sort_column = st.selectbox("Sort by Column", sort_columns, index=sort_columns.index('datetime'), key="sort_column_edit")
+        sort_order = st.radio("Sort Order", ["Descending", "Ascending"], index=0, key="sort_order_edit")
+        
+        # Apply sorting
+        if not display_df.empty:
+            ascending = True if sort_order == "Ascending" else False
+            # Handle potential non-sortable types (e.g., mixing numbers and strings)
+            try:
+                display_df = display_df.sort_values(by=selected_sort_column, ascending=ascending, ignore_index=False)
+            except TypeError:
+                st.warning(f"Cannot sort by '{selected_sort_column}' due to mixed data types in column. Showing unsorted.")
+                # Fallback: do not sort if there's a TypeError
+        
         st.write("Edit the table below directly:")
         edited_df_result = st.data_editor(
-            display_df, # Pass the filtered DataFrame for display
+            display_df, # Pass the filtered AND sorted DataFrame for display
             key="admin_data_editor",
             column_config={
                 "date": st.column_config.DateColumn("Date", format="YYYY-MM-DD", help="Date of entry"),
@@ -428,12 +443,11 @@ def main():
         )
 
         if st.button("Save Changes to Sheet", key="save_admin_changes_btn"):
-            # Get changes from the data_editor's session state
             edited_rows = st.session_state["admin_data_editor"]["edited_rows"]
             added_rows = st.session_state["admin_data_editor"]["added_rows"]
             deleted_rows = st.session_state["admin_data_editor"]["deleted_rows"]
 
-            updated_df = df.copy() # Start with a copy of the original full DataFrame
+            updated_df = df.copy() 
 
             # 1. Handle Deletions
             if deleted_rows:
@@ -443,15 +457,14 @@ def main():
             # 2. Handle Edits
             for idx, changes in edited_rows.items():
                 for col, value in changes.items():
-                    # Special handling for date columns from data_editor might return datetime.date or str
                     if col in ['date', 'initial_date', 'deadline']:
                         if isinstance(value, str):
                             try:
                                 updated_df.at[idx, col] = datetime.strptime(value, "%Y-%m-%d").date()
                             except ValueError:
                                 st.warning(f"Invalid date format for row {idx}, column {col}: '{value}'. Skipping update for this cell.")
-                                continue # Skip this cell but continue with others
-                        else: # Assume it's already a date object
+                                continue 
+                        else: 
                             updated_df.at[idx, col] = value
                     elif col == 'datetime':
                         if isinstance(value, str):
@@ -460,11 +473,11 @@ def main():
                             except ValueError:
                                 st.warning(f"Invalid datetime format for row {idx}, column {col}: '{value}'. Skipping update for this cell.")
                                 continue
-                        else: # Assume it's already a datetime object
+                        else: 
                             updated_df.at[idx, col] = value
-                    elif col == 'paid': # Ensure boolean type
+                    elif col == 'paid': 
                         updated_df.at[idx, col] = bool(value)
-                    elif col in ['amount', 'length_min']: # Ensure numeric type
+                    elif col in ['amount', 'length_min']: 
                         updated_df.at[idx, col] = pd.to_numeric(value, errors='coerce').fillna(0.0)
                     else:
                         updated_df.at[idx, col] = value
@@ -474,28 +487,23 @@ def main():
 
             # 3. Handle Additions
             if added_rows:
-                # Convert added_rows to a DataFrame and concatenate
                 added_df = pd.DataFrame(added_rows)
-                # Ensure correct types for added rows before concat
                 added_df['paid'] = added_df['paid'].astype(bool)
                 added_df['amount'] = pd.to_numeric(added_df['amount'], errors='coerce').fillna(0.0)
                 added_df['length_min'] = pd.to_numeric(added_df['length_min'], errors='coerce').fillna(0.0)
-                # Convert date columns to date objects
                 for col in ['date', 'initial_date', 'deadline']:
                     added_df[col] = pd.to_datetime(added_df[col], errors='coerce').dt.date
                 added_df['datetime'] = pd.to_datetime(added_df['datetime'], errors='coerce')
                 
-                # Make sure added_df has all EXPECTED_HEADERS, fill missing with defaults if necessary
                 for col in EXPECTED_HEADERS:
                     if col not in added_df.columns:
-                        # Assign a default based on expected type
                         if col in ['amount', 'length_min']: added_df[col] = 0.0
                         elif col == 'paid': added_df[col] = False
                         elif col in ['date', 'initial_date', 'deadline']: added_df[col] = datetime.now().date()
                         elif col == 'datetime': added_df[col] = datetime.now()
-                        else: added_df[col] = '' # Default for string columns
+                        else: added_df[col] = '' 
 
-                added_df = added_df[EXPECTED_HEADERS] # Ensure order for consistency
+                added_df = added_df[EXPECTED_HEADERS] 
                 updated_df = pd.concat([updated_df, added_df], ignore_index=True)
                 st.info(f"Added {len(added_rows)} new rows.")
 
@@ -503,7 +511,7 @@ def main():
                 try:
                     update_entire_sheet(updated_df)
                     st.success("Changes saved successfully!")
-                    rerun() # Rerun to refresh the displayed data with the latest from GSheet
+                    rerun() 
                 except Exception as e:
                     st.error(f"Error saving changes: {e}")
                     st.warning("Please ensure all entries have valid data types (e.g., numbers for amount/length, correct date formats) and all required columns are present.")
