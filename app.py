@@ -50,9 +50,27 @@ def load_video_data():
         
         # Ensure columns are in the correct order and have proper data types
         df = df[EXPECTED_HEADERS] # Reorder columns to match expected
-        df['paid'] = df['paid'].astype(bool)
+
+        # --- Enhanced Type Conversions for st.data_editor compatibility ---
+        
+        # Convert 'paid' column to boolean
+        # Handle various string representations of boolean
+        df['paid'] = df['paid'].apply(lambda x: True if str(x).lower() in ['true', 'yes', '1'] else False)
+        
+        # Convert numeric columns, coercing errors and filling NaN
         df['amount'] = pd.to_numeric(df['amount'], errors='coerce').fillna(0.0)
         df['length_min'] = pd.to_numeric(df['length_min'], errors='coerce').fillna(0.0)
+
+        # Convert date columns to datetime objects
+        # Use errors='coerce' to turn unparseable dates into NaT (Not a Time)
+        # Then fill NaT with a default or a sensible date if needed. For now, we'll let it be NaT.
+        # Streamlit's data_editor can usually handle NaT for DateColumns, displaying them as blank.
+        df['date'] = pd.to_datetime(df['date'], errors='coerce').dt.date # Convert to date objects for DateColumn
+        df['initial_date'] = pd.to_datetime(df['initial_date'], errors='coerce').dt.date
+        df['deadline'] = pd.to_datetime(df['deadline'], errors='coerce').dt.date
+        
+        # Convert datetime column to datetime objects
+        df['datetime'] = pd.to_datetime(df['datetime'], errors='coerce')
         
         return df
     except gspread.exceptions.WorksheetNotFound:
@@ -60,7 +78,9 @@ def load_video_data():
         return pd.DataFrame(columns=EXPECTED_HEADERS)
     except Exception as e:
         st.error(f"Error loading video data from Google Sheet. Ensure sheet URL, name, and service account permissions are correct. Error: {e}")
-        return pd.DataFrame(columns=EXPECTED_HEADERS) # Return empty DataFrame on failure
+        # Return empty DataFrame with expected columns and their default Python types
+        # This helps st.data_editor initialize with the correct schema if data loading fails
+        return pd.DataFrame(columns=EXPECTED_HEADERS)
 
 def save_video_entry(amount, currency, client, paid, video_name, length_min, initial_date, deadline):
     """Saves a new video entry to the Google Sheet and sends an email notification."""
@@ -87,8 +107,17 @@ def save_video_entry(amount, currency, client, paid, video_name, length_min, ini
         sheet = spreadsheet.worksheet(SHEET_NAME)
         
         # Convert dict to list based on EXPECTED_HEADERS order
-        new_entry_values = [new_entry_dict[col] for col in EXPECTED_HEADERS]
-        
+        # Ensure values are in a format gspread can write (strings, numbers, bool)
+        new_entry_values = []
+        for col in EXPECTED_HEADERS:
+            value = new_entry_dict[col]
+            if isinstance(value, datetime):
+                new_entry_values.append(value.strftime("%Y-%m-%d %H:%M:%S"))
+            elif isinstance(value, datetime.date):
+                new_entry_values.append(value.strftime("%Y-%m-%d"))
+            else:
+                new_entry_values.append(value)
+
         # Append the new entry as a row
         sheet.append_row(new_entry_values, value_input_option='USER_ENTERED')
         
@@ -119,12 +148,23 @@ def update_entire_sheet(df_to_update):
         sheet = client.open_by_url(GSHEET_URL).worksheet(SHEET_NAME)
         
         # Clear existing data and then write the updated DataFrame
-        # This is a full overwrite, so it's efficient for moderate sheet sizes.
         sheet.clear()
         
+        # Prepare DataFrame for writing: convert dates/datetimes back to string format
+        # and ensure boolean is True/False or 'TRUE'/'FALSE' strings
+        df_for_gsheet = df_to_update.copy()
+        
+        for col in ['date', 'initial_date', 'deadline']:
+            df_for_gsheet[col] = df_for_gsheet[col].apply(lambda x: x.strftime("%Y-%m-%d") if pd.notna(x) else '')
+        
+        df_for_gsheet['datetime'] = df_for_gsheet['datetime'].apply(lambda x: x.strftime("%Y-%m-%d %H:%M:%S") if pd.notna(x) else '')
+        
+        # Ensure 'paid' column is written as standard boolean strings
+        df_for_gsheet['paid'] = df_for_gsheet['paid'].apply(lambda x: 'TRUE' if x else 'FALSE')
+
         # Convert DataFrame to a list of lists, including headers
         # Ensure column order matches EXPECTED_HEADERS
-        df_to_write = df_to_update[EXPECTED_HEADERS]
+        df_to_write = df_for_gsheet[EXPECTED_HEADERS]
         data_to_write = [df_to_write.columns.values.tolist()] + df_to_write.values.tolist()
         
         sheet.update(data_to_write, value_input_option='USER_ENTERED')
@@ -152,21 +192,22 @@ def send_notification_email(subject, content):
 def get_month_name(date_str):
     """Converts a date string (YYYY-MM-DD) to a Month Year format (e.g., "January 2023")."""
     try:
-        return datetime.strptime(date_str, "%Y-%m-%d").strftime("%B %Y")
+        return datetime.strptime(str(date_str), "%Y-%m-%d").strftime("%B %Y") # Ensure date_str is string
     except:
         return "Unknown"
 
-def extract_time(datetime_str):
-    """Extracts time (e.g., "9:30pm") from a datetime string (YYYY-MM-DD HH:MM:SS)."""
+def extract_time(datetime_obj):
+    """Extracts time (e.g., "9:30pm") from a datetime object."""
     try:
-        dt = datetime.strptime(datetime_str, "%Y-%m-%d %H:%M:%S")
-        return dt.strftime("%I:%M%p").lower().lstrip("0")
+        # Check if it's a valid datetime object (not NaT)
+        if pd.isna(datetime_obj):
+            return "Time Unknown"
+        return datetime_obj.strftime("%I:%M%p").lower().lstrip("0")
     except:
         return "Time Unknown"
 
 def rerun():
     """Forces Streamlit to rerun the script immediately."""
-    # This toggles a session state variable to ensure a rerun
     st.session_state["__rerun_flag__"] = not st.session_state.get("__rerun_flag__", False)
     st.rerun() # Use st.rerun() for immediate rerun (stable version)
 
@@ -178,10 +219,15 @@ def format_text(date, amount, currency, client, video_name, length_min, paid, in
     length_fmt = f"{length_min:.1f} min" if length_min and length_min > 0 else "N/A"
     paid_status = "✅ Paid" if paid else "❌ Not Paid"
     
+    # Format date objects back to strings for display
+    date_str = date.strftime("%Y-%m-%d") if pd.notna(date) else "N/A"
+    initial_str = initial.strftime("%Y-%m-%d") if pd.notna(initial) else "N/A"
+    deadline_str = deadline.strftime("%Y-%m-%d") if pd.notna(deadline) else "N/A"
+
     return f"""
     <div style='line-height: 1.6; border-bottom: 1px solid #333; padding-bottom: 5px; margin-bottom: 5px;'>
         <b style='color: lightgrey;'>{time_str}</b> | {amount_fmt} | Client: {client_fmt} | Video: {video_fmt} | Length: <span style='color: silver;'>{length_fmt}</span> | {paid_status} <br>
-        <small style='color: grey;'>Initial Date: {initial} | Deadline: {deadline}</small>
+        <small style='color: grey;'>Initial Date: {initial_str} | Deadline: {deadline_str}</small>
     </div>
     """
 
@@ -204,7 +250,10 @@ def main():
     # --- Sidebar for Unpaid Videos and Admin Login ---
     with st.sidebar:
         st.header("🧾 Unpaid PKR Videos")
-        unpaid_pkr = df[(df['currency'] == "PKR") & (~df['paid'])].copy() # Use .copy() to avoid SettingWithCopyWarning
+        # Ensure you operate on a copy if you plan to modify and update df later.
+        # However, for checkbox updates, directly modifying df.at[row.name, 'paid'] is fine
+        # as it updates the original DataFrame which then gets saved and reloaded.
+        unpaid_pkr = df[(df['currency'] == "PKR") & (~df['paid'])]
         paid_changed = False # Flag to check if any paid status was changed
 
         if unpaid_pkr.empty:
@@ -220,7 +269,7 @@ def main():
                     paid_changed = True
 
         st.header("💵 Unpaid USD Videos")
-        unpaid_usd = df[(df['currency'] == "USD") & (~df['paid'])].copy() # Use .copy()
+        unpaid_usd = df[(df['currency'] == "USD") & (~df['paid'])]
         if unpaid_usd.empty:
             st.info("All USD videos are marked as paid.")
         else:
@@ -381,6 +430,7 @@ def main():
 
                         for i, row in day_data_sorted.iterrows():
                             time_str = extract_time(row['datetime'])
+                            # Pass actual date objects to format_text
                             formatted = format_text(row['date'], row['amount'], row['currency'], row['client'], row['video_name'],
                                                     row['length_min'], row['paid'], row['initial_date'], row['deadline'], time_str)
                             st.markdown(formatted, unsafe_allow_html=True)
@@ -397,6 +447,7 @@ def main():
             return
 
         st.write("Edit the table below directly:")
+        # Pass the pre-processed DataFrame directly to data_editor
         edited_df = st.data_editor(
             df, 
             key="admin_data_editor",
@@ -419,14 +470,18 @@ def main():
 
         if st.button("Save Changes to Sheet", key="save_admin_changes_btn"):
             try:
-                # Ensure data types are consistent before saving back to Google Sheet
+                # When saving changes from data_editor, ensure the types are ready for GSheets
+                # The data_editor might return slightly different types (e.g., pandas nullable types)
+                # Convert back to standard Python types or string for gspread.
+                
+                # Convert 'paid' column to standard boolean (True/False)
                 edited_df['paid'] = edited_df['paid'].astype(bool)
+                
+                # Convert numeric columns to float
                 edited_df['amount'] = pd.to_numeric(edited_df['amount'], errors='coerce').fillna(0.0)
                 edited_df['length_min'] = pd.to_numeric(edited_df['length_min'], errors='coerce').fillna(0.0)
                 
-                # Reorder columns to ensure they match the sheet's expected order
-                edited_df = edited_df[EXPECTED_HEADERS]
-
+                # The update_entire_sheet function now handles the final formatting to strings for GSheets
                 update_entire_sheet(edited_df)
                 st.success("Changes saved successfully!")
                 rerun() # Rerun to reflect changes and refresh the display
